@@ -102,7 +102,7 @@ export const newProduct = TryCatch(
       price,
       stock,
       category: category.toLowerCase(),
-      photo: photosURL,
+      photos: photosURL,
     });
 
     invalidateCache({ product: true, admin: true });
