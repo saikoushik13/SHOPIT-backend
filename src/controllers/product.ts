@@ -83,7 +83,6 @@ export const newProduct = TryCatch(
   async (req: Request<{}, {}, NewProductRequestBody>, res, next) => {
     const { name, price, stock, category } = req.body;
     const photos = req.files as Express.Multer.File[] | undefined;
-
     if (!photos) return next(new ErrorHandler("Please add Photo", 400));
 
     if (photos.length < 1)
@@ -91,6 +90,7 @@ export const newProduct = TryCatch(
 
     if (photos.length > 5)
       return next(new ErrorHandler("You can only upload 5 Photos", 400));
+
 
     if (!name || !price || !stock || !category )
       return next(new ErrorHandler("Please enter All Fields", 400));
