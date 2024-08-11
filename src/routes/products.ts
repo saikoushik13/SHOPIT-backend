@@ -1,16 +1,19 @@
 import express from "express";
-import { adminOnly } from "../middlewares/auth.js";
 import {
+  allReviewsOfProduct,
   deleteProduct,
+  deleteReview,
   getAdminProducts,
   getAllCategories,
   getAllProducts,
   getSingleProduct,
   getlatestProducts,
   newProduct,
+  newReview,
   updateProduct,
 } from "../controllers/product.js";
-import {  mutliUpload } from "../middlewares/multer.js";
+import { adminOnly } from "../middlewares/auth.js";
+import { mutliUpload } from "../middlewares/multer.js";
 
 const app = express.Router();
 
@@ -35,5 +38,9 @@ app
   .get(getSingleProduct)
   .put(adminOnly, mutliUpload, updateProduct)
   .delete(adminOnly, deleteProduct);
+
+app.get("/reviews/:id", allReviewsOfProduct);
+app.post("/review/new/:id", newReview);
+app.delete("/review/:id", deleteReview);
 
 export default app;

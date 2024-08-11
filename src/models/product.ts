@@ -18,7 +18,6 @@ const schema = new mongoose.Schema(
         },
       },
     ],
-
     price: {
       type: Number,
       required: [true, "Please enter Price"],
@@ -31,6 +30,21 @@ const schema = new mongoose.Schema(
       type: String,
       required: [true, "Please enter Category"],
       trim: true,
+    },
+
+    description: {
+      type: String,
+      required: [true, "Please enter Description"],
+    },
+
+    ratings: {
+      type: Number,
+      default: 0,
+    },
+
+    numOfReviews: {
+      type: Number,
+      default: 0,
     },
   },
   {
