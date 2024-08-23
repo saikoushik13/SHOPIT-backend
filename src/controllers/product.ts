@@ -140,8 +140,11 @@ export const updateProduct = TryCatch(async (req, res, next) => {
     const ids = product.photos.map((photo) => photo.public_id);
 
     await deleteFromCloudinary(ids);
-
-    product.photos = photosURL||" ";
+    
+    photosURL.forEach(photoData => {
+      product.photos.push({ public_id: photoData.public_id, url: photoData.url });
+    });
+    
   }
 
   if (name) product.name = name;
