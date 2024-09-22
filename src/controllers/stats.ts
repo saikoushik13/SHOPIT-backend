@@ -1,4 +1,4 @@
-import { myCache } from "../app.js";
+import { redis, redisTTL } from "../app.js";
 import { TryCatch } from "../middlewares/error.js";
 import { Order } from "../models/order.js";
 import { Product } from "../models/product.js";
@@ -9,15 +9,15 @@ import {
   getInventories,
 } from "../utils/features.js";
 
-// Get Dashboard Stats
 export const getDashboardStats = TryCatch(async (req, res, next) => {
-  let stats = {};
+  let stats;
+
   const key = "admin-stats";
 
-  // Check if the stats are cached
-  if (myCache.has(key)) {
-    stats = JSON.parse(myCache.get(key) as string);
-  } else {
+  stats = await redis.get(key);
+
+  if (stats) stats = JSON.parse(stats);
+  else {
     const today = new Date();
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
@@ -32,7 +32,59 @@ export const getDashboardStats = TryCatch(async (req, res, next) => {
       end: new Date(today.getFullYear(), today.getMonth(), 0),
     };
 
-    // Fetch data for this month and last month
+    const thisMonthProductsPromise = Product.find({
+      createdAt: {
+        $gte: thisMonth.start,
+        $lte: thisMonth.end,
+      },
+    });
+
+    const lastMonthProductsPromise = Product.find({
+      createdAt: {
+        $gte: lastMonth.start,
+        $lte: lastMonth.end,
+      },
+    });
+
+    const thisMonthUsersPromise = User.find({
+      createdAt: {
+        $gte: thisMonth.start,
+        $lte: thisMonth.end,
+      },
+    });
+
+    const lastMonthUsersPromise = User.find({
+      createdAt: {
+        $gte: lastMonth.start,
+        $lte: lastMonth.end,
+      },
+    });
+
+    const thisMonthOrdersPromise = Order.find({
+      createdAt: {
+        $gte: thisMonth.start,
+        $lte: thisMonth.end,
+      },
+    });
+
+    const lastMonthOrdersPromise = Order.find({
+      createdAt: {
+        $gte: lastMonth.start,
+        $lte: lastMonth.end,
+      },
+    });
+
+    const lastSixMonthOrdersPromise = Order.find({
+      createdAt: {
+        $gte: sixMonthsAgo,
+        $lte: today,
+      },
+    });
+
+    const latestTransactionsPromise = Order.find({})
+      .select(["orderItems", "discount", "total", "status"])
+      .limit(4);
+
     const [
       thisMonthProducts,
       thisMonthUsers,
@@ -48,81 +100,56 @@ export const getDashboardStats = TryCatch(async (req, res, next) => {
       femaleUsersCount,
       latestTransaction,
     ] = await Promise.all([
-      Product.find({
-        createdAt: {
-          $gte: thisMonth.start,
-          $lte: thisMonth.end,
-        },
-      }),
-      User.find({
-        createdAt: {
-          $gte: thisMonth.start,
-          $lte: thisMonth.end,
-        },
-      }),
-      Order.find({
-        createdAt: {
-          $gte: thisMonth.start,
-          $lte: thisMonth.end,
-        },
-      }),
-      Product.find({
-        createdAt: {
-          $gte: lastMonth.start,
-          $lte: lastMonth.end,
-        },
-      }),
-      User.find({
-        createdAt: {
-          $gte: lastMonth.start,
-          $lte: lastMonth.end,
-        },
-      }),
-      Order.find({
-        createdAt: {
-          $gte: lastMonth.start,
-          $lte: lastMonth.end,
-        },
-      }),
+      thisMonthProductsPromise,
+      thisMonthUsersPromise,
+      thisMonthOrdersPromise,
+      lastMonthProductsPromise,
+      lastMonthUsersPromise,
+      lastMonthOrdersPromise,
       Product.countDocuments(),
       User.countDocuments(),
       Order.find({}).select("total"),
-      Order.find({
-        createdAt: {
-          $gte: sixMonthsAgo,
-          $lte: today,
-        },
-      }),
+      lastSixMonthOrdersPromise,
       Product.distinct("category"),
       User.countDocuments({ gender: "female" }),
-      Order.find({}).select(["orderItems", "discount", "total", "status"]).limit(4),
+      latestTransactionsPromise,
     ]);
 
-    // Calculate statistics
     const thisMonthRevenue = thisMonthOrders.reduce(
       (total, order) => total + (order.total || 0),
       0
     );
+
     const lastMonthRevenue = lastMonthOrders.reduce(
       (total, order) => total + (order.total || 0),
       0
     );
+
     const changePercent = {
       revenue: calculatePercentage(thisMonthRevenue, lastMonthRevenue),
-      product: calculatePercentage(thisMonthProducts.length, lastMonthProducts.length),
+      product: calculatePercentage(
+        thisMonthProducts.length,
+        lastMonthProducts.length
+      ),
       user: calculatePercentage(thisMonthUsers.length, lastMonthUsers.length),
-      order: calculatePercentage(thisMonthOrders.length, lastMonthOrders.length),
+      order: calculatePercentage(
+        thisMonthOrders.length,
+        lastMonthOrders.length
+      ),
     };
+
     const revenue = allOrders.reduce(
       (total, order) => total + (order.total || 0),
       0
     );
+
     const count = {
       revenue,
       product: productsCount,
       user: usersCount,
       order: allOrders.length,
     };
+
     const orderMonthCounts = new Array(6).fill(0);
     const orderMonthyRevenue = new Array(6).fill(0);
 
@@ -166,8 +193,7 @@ export const getDashboardStats = TryCatch(async (req, res, next) => {
       latestTransaction: modifiedLatestTransaction,
     };
 
-    // Cache the stats
-    myCache.set(key, JSON.stringify(stats));
+    await redis.setex(key, redisTTL, JSON.stringify(stats));
   }
 
   return res.status(200).json({
@@ -176,14 +202,22 @@ export const getDashboardStats = TryCatch(async (req, res, next) => {
   });
 });
 
-// Get Pie Charts
 export const getPieCharts = TryCatch(async (req, res, next) => {
   let charts;
   const key = "admin-pie-charts";
 
-  if (myCache.has(key)) {
-    charts = JSON.parse(myCache.get(key) as string);
-  } else {
+  charts = await redis.get(key);
+
+  if (charts) charts = JSON.parse(charts);
+  else {
+    const allOrderPromise = Order.find({}).select([
+      "total",
+      "discount",
+      "subtotal",
+      "tax",
+      "shippingCharges",
+    ]);
+
     const [
       processingOrder,
       shippedOrder,
@@ -202,7 +236,7 @@ export const getPieCharts = TryCatch(async (req, res, next) => {
       Product.distinct("category"),
       Product.countDocuments(),
       Product.countDocuments({ stock: 0 }),
-      Order.find({}).select(["total", "discount", "subtotal", "tax", "shippingCharges"]),
+      allOrderPromise,
       User.find({}).select(["dob"]),
       User.countDocuments({ role: "admin" }),
       User.countDocuments({ role: "user" }),
@@ -239,14 +273,12 @@ export const getPieCharts = TryCatch(async (req, res, next) => {
       0
     );
 
-    const burnt = allOrders.reduce(
-      (prev, order) => prev + (order.tax || 0),
-      0
-    );
+    const burnt = allOrders.reduce((prev, order) => prev + (order.tax || 0), 0);
 
     const marketingCost = Math.round(grossIncome * (30 / 100));
 
-    const netMargin = grossIncome - discount - productionCost - burnt - marketingCost;
+    const netMargin =
+      grossIncome - discount - productionCost - burnt - marketingCost;
 
     const revenueDistribution = {
       netMargin,
@@ -276,7 +308,7 @@ export const getPieCharts = TryCatch(async (req, res, next) => {
       adminCustomer,
     };
 
-    myCache.set(key, JSON.stringify(charts));
+    await redis.setex(key, redisTTL, JSON.stringify(charts));
   }
 
   return res.status(200).json({
@@ -285,14 +317,14 @@ export const getPieCharts = TryCatch(async (req, res, next) => {
   });
 });
 
-// Get Bar Charts
 export const getBarCharts = TryCatch(async (req, res, next) => {
   let charts;
   const key = "admin-bar-charts";
 
-  if (myCache.has(key)) {
-    charts = JSON.parse(myCache.get(key) as string);
-  } else {
+  charts = await redis.get(key);
+
+  if (charts) charts = JSON.parse(charts);
+  else {
     const today = new Date();
 
     const sixMonthsAgo = new Date();
@@ -301,25 +333,31 @@ export const getBarCharts = TryCatch(async (req, res, next) => {
     const twelveMonthsAgo = new Date();
     twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
 
+    const sixMonthProductPromise = Product.find({
+      createdAt: {
+        $gte: sixMonthsAgo,
+        $lte: today,
+      },
+    }).select("createdAt");
+
+    const sixMonthUsersPromise = User.find({
+      createdAt: {
+        $gte: sixMonthsAgo,
+        $lte: today,
+      },
+    }).select("createdAt");
+
+    const twelveMonthOrdersPromise = Order.find({
+      createdAt: {
+        $gte: twelveMonthsAgo,
+        $lte: today,
+      },
+    }).select("createdAt");
+
     const [products, users, orders] = await Promise.all([
-      Product.find({
-        createdAt: {
-          $gte: sixMonthsAgo,
-          $lte: today,
-        },
-      }).select("createdAt"),
-      User.find({
-        createdAt: {
-          $gte: sixMonthsAgo,
-          $lte: today,
-        },
-      }).select("createdAt"),
-      Order.find({
-        createdAt: {
-          $gte: twelveMonthsAgo,
-          $lte: today,
-        },
-      }).select("createdAt"),
+      sixMonthProductPromise,
+      sixMonthUsersPromise,
+      twelveMonthOrdersPromise,
     ]);
 
     const productCounts = getChartData({ length: 6, today, docArr: products });
@@ -332,7 +370,7 @@ export const getBarCharts = TryCatch(async (req, res, next) => {
       orders: ordersCounts,
     };
 
-    myCache.set(key, JSON.stringify(charts));
+    await redis.setex(key, redisTTL, JSON.stringify(charts));
   }
 
   return res.status(200).json({
@@ -341,14 +379,14 @@ export const getBarCharts = TryCatch(async (req, res, next) => {
   });
 });
 
-// Get Line Charts
 export const getLineCharts = TryCatch(async (req, res, next) => {
   let charts;
   const key = "admin-line-charts";
 
-  if (myCache.has(key)) {
-    charts = JSON.parse(myCache.get(key) as string);
-  } else {
+  charts = await redis.get(key);
+
+  if (charts) charts = JSON.parse(charts);
+  else {
     const today = new Date();
 
     const twelveMonthsAgo = new Date();
@@ -389,7 +427,7 @@ export const getLineCharts = TryCatch(async (req, res, next) => {
       revenue,
     };
 
-    myCache.set(key, JSON.stringify(charts));
+    await redis.setex(key, redisTTL, JSON.stringify(charts));
   }
 
   return res.status(200).json({

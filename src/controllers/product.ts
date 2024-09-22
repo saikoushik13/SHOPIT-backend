@@ -1,4 +1,5 @@
 import { Request } from "express";
+import { redis, redisTTL } from "../app.js";
 import { TryCatch } from "../middlewares/error.js";
 import { Product } from "../models/product.js";
 import { Review } from "../models/review.js";
@@ -15,17 +16,18 @@ import {
   uploadToCloudinary,
 } from "../utils/features.js";
 import ErrorHandler from "../utils/utility-class.js";
-import { myCache } from "../app.js"; // Import myCache
+// import { faker } from "@faker-js/faker";
 
 // Revalidate on New,Update,Delete Product & on New Order
 export const getlatestProducts = TryCatch(async (req, res, next) => {
   let products;
 
-  if (myCache.has("latest-products")) {
-    products = JSON.parse(myCache.get("latest-products") as string);
-  } else {
+  products = await redis.get("latest-products");
+
+  if (products) products = JSON.parse(products);
+  else {
     products = await Product.find({}).sort({ createdAt: -1 }).limit(5);
-    myCache.set("latest-products", JSON.stringify(products));
+    await redis.setex("latest-products", redisTTL, JSON.stringify(products));
   }
 
   return res.status(200).json({
@@ -38,11 +40,12 @@ export const getlatestProducts = TryCatch(async (req, res, next) => {
 export const getAllCategories = TryCatch(async (req, res, next) => {
   let categories;
 
-  if (myCache.has("categories")) {
-    categories = JSON.parse(myCache.get("categories") as string);
-  } else {
+  categories = await redis.get("categories");
+
+  if (categories) categories = JSON.parse(categories);
+  else {
     categories = await Product.distinct("category");
-    myCache.set("categories", JSON.stringify(categories));
+    await redis.setex("categories", redisTTL, JSON.stringify(categories));
   }
 
   return res.status(200).json({
@@ -55,11 +58,12 @@ export const getAllCategories = TryCatch(async (req, res, next) => {
 export const getAdminProducts = TryCatch(async (req, res, next) => {
   let products;
 
-  if (myCache.has("all-products")) {
-    products = JSON.parse(myCache.get("all-products") as string);
-  } else {
+  products = await redis.get("all-products");
+
+  if (products) products = JSON.parse(products);
+  else {
     products = await Product.find({});
-    myCache.set("all-products", JSON.stringify(products));
+    await redis.setex("all-products", redisTTL, JSON.stringify(products));
   }
 
   return res.status(200).json({
@@ -73,13 +77,13 @@ export const getSingleProduct = TryCatch(async (req, res, next) => {
   const id = req.params.id;
   const key = `product-${id}`;
 
-  if (myCache.has(key)) {
-    product = JSON.parse(myCache.get(key) as string);
-  } else {
+  product = await redis.get(key);
+  if (product) product = JSON.parse(product);
+  else {
     product = await Product.findById(id);
     if (!product) return next(new ErrorHandler("Product Not Found", 404));
 
-    myCache.set(key, JSON.stringify(product));
+    await redis.setex(key, redisTTL, JSON.stringify(product));
   }
 
   return res.status(200).json({
@@ -96,7 +100,7 @@ export const newProduct = TryCatch(
     if (!photos) return next(new ErrorHandler("Please add Photo", 400));
 
     if (photos.length < 1)
-      return next(new ErrorHandler("Please add at least one Photo", 400));
+      return next(new ErrorHandler("Please add atleast one Photo", 400));
 
     if (photos.length > 5)
       return next(new ErrorHandler("You can only upload 5 Photos", 400));
@@ -105,6 +109,7 @@ export const newProduct = TryCatch(
       return next(new ErrorHandler("Please enter All Fields", 400));
 
     // Upload Here
+
     const photosURL = await uploadToCloudinary(photos);
 
     await Product.create({
@@ -140,11 +145,8 @@ export const updateProduct = TryCatch(async (req, res, next) => {
     const ids = product.photos.map((photo) => photo.public_id);
 
     await deleteFromCloudinary(ids);
-    
-    photosURL.forEach(photoData => {
-      product.photos.push({ public_id: photoData.public_id, url: photoData.url });
-    });
-    
+
+
   }
 
   if (name) product.name = name;
@@ -200,11 +202,15 @@ export const getAllProducts = TryCatch(
     let products;
     let totalPage;
 
-    if (myCache.has(key)) {
-      const data = JSON.parse(myCache.get(key) as string);
+    const cachedData = await redis.get(key);
+    if (cachedData) {
+      const data = JSON.parse(cachedData);
       totalPage = data.totalPage;
       products = data.products;
     } else {
+      // 1,2,3,4,5,6,7,8
+      // 9,10,11,12,13,14,15,16
+      // 17,18,19,20,21,22,23,24
       const limit = Number(process.env.PRODUCT_PER_PAGE) || 8;
       const skip = (page - 1) * limit;
 
@@ -236,7 +242,7 @@ export const getAllProducts = TryCatch(
       products = productsFetched;
       totalPage = Math.ceil(filteredOnlyProduct.length / limit);
 
-      myCache.set(key, JSON.stringify({ products, totalPage }));
+      await redis.setex(key, 30, JSON.stringify({ products, totalPage }));
     }
 
     return res.status(200).json({
@@ -251,16 +257,17 @@ export const allReviewsOfProduct = TryCatch(async (req, res, next) => {
   let reviews;
   const key = `reviews-${req.params.id}`;
 
-  if (myCache.has(key)) {
-    reviews = JSON.parse(myCache.get(key) as string);
-  } else {
+  reviews = await redis.get(key);
+
+  if (reviews) reviews = JSON.parse(reviews);
+  else {
     reviews = await Review.find({
       product: req.params.id,
     })
       .populate("user", "name photo")
       .sort({ updatedAt: -1 });
 
-    myCache.set(key, JSON.stringify(reviews));
+    await redis.setex(key, redisTTL, JSON.stringify(reviews));
   }
 
   return res.status(200).json({
@@ -314,7 +321,7 @@ export const newReview = TryCatch(async (req, res, next) => {
 
   return res.status(alreadyReviewed ? 200 : 201).json({
     success: true,
-    message: alreadyReviewed ? "Review Updated" : "Review Added",
+    message: alreadyReviewed ? "Review Update" : "Review Added",
   });
 });
 
@@ -354,3 +361,37 @@ export const deleteReview = TryCatch(async (req, res, next) => {
     message: "Review Deleted",
   });
 });
+
+// const generateRandomProducts = async (count: number = 10) => {
+//   const products = [];
+
+//   for (let i = 0; i < count; i++) {
+//     const product = {
+//       name: faker.commerce.productName(),
+//       photo: "uploads\\5ba9bd91-b89c-40c2-bb8a-66703408f986.png",
+//       price: faker.commerce.price({ min: 1500, max: 80000, dec: 0 }),
+//       stock: faker.commerce.price({ min: 0, max: 100, dec: 0 }),
+//       category: faker.commerce.department(),
+//       createdAt: new Date(faker.date.past()),
+//       updatedAt: new Date(faker.date.recent()),
+//       __v: 0,
+//     };
+
+//     products.push(product);
+//   }
+
+//   await Product.create(products);
+
+//   console.log({ succecss: true });
+// };
+
+// const deleteRandomsProducts = async (count: number = 10) => {
+//   const products = await Product.find({}).skip(2);
+
+//   for (let i = 0; i < products.length; i++) {
+//     const product = products[i];
+//     await product.deleteOne();
+//   }
+
+//   console.log({ succecss: true });
+// };

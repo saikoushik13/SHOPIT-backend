@@ -1,9 +1,10 @@
 import { UploadApiResponse, v2 as cloudinary } from "cloudinary";
+import { Redis } from "ioredis";
 import mongoose, { Document } from "mongoose";
+import { redis } from "../app.js";
 import { Product } from "../models/product.js";
 import { Review } from "../models/review.js";
 import { InvalidateCacheProps, OrderItemType } from "../types/types.js";
-import { myCache } from "../app.js";
 
 export const findAverageRatings = async (
   productId: mongoose.Types.ObjectId
@@ -57,10 +58,19 @@ export const deleteFromCloudinary = async (publicIds: string[]) => {
   await Promise.all(promises);
 };
 
+export const connectRedis = (redisURI: string) => {
+  const redis = new Redis(redisURI);
+
+  redis.on("connect", () => console.log("Redis Connected"));
+  redis.on("error", (e) => console.log(e));
+
+  return redis;
+};
+
 export const connectDB = (uri: string) => {
   mongoose
     .connect(uri, {
-      dbName: "ecommerce",
+      dbName: "Ecommerce_24",
     })
     .then((c) => console.log(`DB Connected to ${c.connection.host}`))
     .catch((e) => console.log(e));
@@ -76,7 +86,7 @@ export const invalidateCache = async ({
   productId,
 }: InvalidateCacheProps) => {
   if (review) {
-    await myCache.del([`reviews-${productId}`]);
+    await redis.del([`reviews-${productId}`]);
   }
 
   if (product) {
@@ -91,7 +101,7 @@ export const invalidateCache = async ({
     if (typeof productId === "object")
       productId.forEach((i) => productKeys.push(`product-${i}`));
 
-    await myCache.del(productKeys);
+    await redis.del(productKeys);
   }
   if (order) {
     const ordersKeys: string[] = [
@@ -100,10 +110,10 @@ export const invalidateCache = async ({
       `order-${orderId}`,
     ];
 
-    await myCache.del(ordersKeys);
+    await redis.del(ordersKeys);
   }
   if (admin) {
-    await myCache.del([
+    await redis.del([
       "admin-stats",
       "admin-pie-charts",
       "admin-bar-charts",
