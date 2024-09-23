@@ -70,7 +70,7 @@ export const connectRedis = (redisURI: string) => {
 export const connectDB = (uri: string) => {
   mongoose
     .connect(uri, {
-      dbName: "Ecommerce_24",
+      dbName: "ecommerce",
     })
     .then((c) => console.log(`DB Connected to ${c.connection.host}`))
     .catch((e) => console.log(e));
