@@ -146,7 +146,7 @@ export const updateProduct = TryCatch(async (req, res, next) => {
 
     await deleteFromCloudinary(ids);
 
-
+    
   }
 
   if (name) product.name = name;
