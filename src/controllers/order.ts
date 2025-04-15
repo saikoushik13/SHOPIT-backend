@@ -121,10 +121,10 @@ export const processOrder = TryCatch(async (req, res, next) => {
       order.status = "Shipped";
       break;
     case "Shipped":
-      order.status = "Delivered";
+      order.status = "Completed";
       break;
     default:
-      order.status = "Delivered";
+      order.status = "Completed";
       break;
   }
 

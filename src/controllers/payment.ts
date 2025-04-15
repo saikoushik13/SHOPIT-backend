@@ -51,8 +51,11 @@ export const createPaymentIntent = TryCatch(async (req, res, next) => {
   const tax = subtotal * 0.18;
 
   const shipping = subtotal > 1000 ? 0 : 200;
-
-  const total = Math.floor(subtotal + tax + shipping - discountAmount);
+  
+  const total = 1000;
+  if(total <= 0) {
+    return next(new ErrorHandler("Invalid order amount. Please check your items and discount.", 400));
+  }
 
   const paymentIntent = await stripe.paymentIntents.create({
     amount: total * 100,
