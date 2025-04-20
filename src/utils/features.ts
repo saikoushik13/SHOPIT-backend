@@ -133,9 +133,23 @@ export const reduceStock = async (orderItems: OrderItemType[]) => {
 };
 
 export const calculatePercentage = (thisMonth: number, lastMonth: number) => {
-  if (lastMonth === 0) return thisMonth * 100;
-  const percent = (thisMonth / lastMonth) * 100;
-  return Number(percent.toFixed(0));
+  if (lastMonth === 0 && thisMonth === 0) {
+    return 0;
+  }
+
+  // 0→>0: you went from nothing to something = full 100% growth
+  if (lastMonth === 0) {
+    return thisMonth > 0 ? 100 : 0;
+  }
+
+  // normal case
+  const rawChange = ((thisMonth - lastMonth) / Math.abs(lastMonth)) * 100;
+
+  // clamp between –100 and +100
+  const capped = Math.max(-100, Math.min(100, rawChange));
+
+  // round to nearest integer
+  return Math.round(capped);
 };
 
 export const getInventories = async ({

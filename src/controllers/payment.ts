@@ -48,11 +48,12 @@ export const createPaymentIntent = TryCatch(async (req, res, next) => {
     return curr.price * item.quantity + prev;
   }, 0);
 
-  const tax = subtotal * 0.18;
+  const tax = 11;
 
-  const shipping = subtotal > 1000 ? 0 : 200;
+  const shipping = 30;
   
-  const total = 1000;
+  const total  = subtotal + tax + shipping - discountAmount;
+  ;
   if(total <= 0) {
     return next(new ErrorHandler("Invalid order amount. Please check your items and discount.", 400));
   }
